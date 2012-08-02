@@ -1,0 +1,23 @@
+
+./words_bdd words bdd.dot
+
+Reads in a list of words from the file words. 
+
+Treats each word as a null terminated sequence of ascii chars / bits.
+
+Builds a BDD representing all words in the file.
+
+Outputs some stats and a dot (graphviz) representation of the bdd to bdd.dot
+file.
+
+Compiling:
+
+    Requires cudd to be installed.
+
+    Edit CMakeLists to reflect cudd installation.
+
+    Then (in source dir):
+
+        cmake .
+        make
+

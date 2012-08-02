@@ -1,7 +1,9 @@
 
-./words_bdd words bdd.dot
+Running
 
-Reads in a list of words from the file words. 
+    ./words_bdd words bdd.dot
+
+reads in a list of words from the file words. 
 
 Treats each word as a null terminated sequence of ascii chars / bits.
 
@@ -12,9 +14,10 @@ file.
 
 Compiling:
 
-    Requires cudd to be installed.
+    Requires cudd bdd library (v 2.4.2) to be installed.
 
-    Edit CMakeLists to reflect cudd installation.
+    Edit CMakeLists link_directories and include_directories to reflect cudd
+    installation.
 
     Then (in source dir):
 

@@ -3,7 +3,7 @@ Running
 
     ./words_bdd words bdd.dot 
 
-reads in a list of words from the file words. 
+reads in a list of words from the file words (e.g. /usr/share/dict/words). 
 
 Treats each word as a null terminated sequence of ascii chars / bits.
 
@@ -11,6 +11,9 @@ Builds a BDD representing all words in the file.
 
 Outputs some stats and a dot (graphviz) representation of the bdd to bdd.dot
 file.
+
+To render the dot file, i suggest using sfdp from graphviz (it's the filter for
+large diagrams...)
 
 Compiling:
 

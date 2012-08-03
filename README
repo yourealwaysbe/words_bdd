@@ -13,7 +13,9 @@ Outputs some stats and a dot (graphviz) representation of the bdd to bdd.dot
 file.
 
 To render the dot file, i suggest using sfdp from graphviz (it's the filter for
-large diagrams...)
+large diagrams).
+
+The file en.png is a rendering of my /usr/share/dict/words...
 
 Compiling:
 

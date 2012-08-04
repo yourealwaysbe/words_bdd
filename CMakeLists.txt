@@ -9,4 +9,4 @@ link_directories("/usr/lib/cudd")
 include_directories("/usr/include/cudd")
 
 add_executable(words_bdd main.c)
-target_link_libraries(words_bdd epd util mtr st cudd m)
+target_link_libraries(words_bdd epd util mtr st cudd m dddmp)

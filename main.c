@@ -4,6 +4,7 @@
 
 #include "util.h"
 #include "cudd.h"
+#include "dddmp.h"
 
 #define MAX_WORD_SIZE 25
 
@@ -14,7 +15,7 @@ DdNode *getWord(DdManager *manager, char* word);
 DdNode *getWordWildcards(DdManager *manager, char* word);
 DdNode *addChar(DdManager *manager, DdNode *bddWord, char c, int i);
 DdNode *addNonNull(DdManager *manager, DdNode *bddWord, int i);
-void writeDict(DdManager *manager, DdNode *dict, char *outFile);
+void writeDotDict(DdManager *manager, DdNode *dict, char *outFile);
 DdNode *loadWords(DdManager *manager, char *wordsFile);
 void writeSummary(DdManager *manager, DdNode *dict);
 DdNode *matchPattern(DdManager *manager, DdNode *dict, char *pattern);
@@ -22,30 +23,102 @@ void printDictionary(DdManager *manager, DdNode *dict);
 void instantiateAndPrintCube(int *cube, char *buf, int i, int size);
 int setBit(int orig, int bit, int val);
 int getBit(int i, int bit);
+void processCommandLine(int argc, char **argv);
+DdNode *loadBdd(DdManager *manager, char *bddInFile);
+void writeBddDict(DdManager *manager, DdNode *dict, char *bddOutFile);
 
 int totalChars = 0;
 int totalWords = 0;
 
-int main(int argc, char** argv) {
 
-    if (argc < 4) {
-        printf("Usage: ./words_bdd words_file output_dot_file pattern\n");
-        exit(-1);
-    }
+char *bddInFile = 0x00;
+char *bddOutFile = 0x00;
+char *wordFile = 0x00;
+char *dotFile = 0x00;
+char *pattern = 0x00;
+
+int main(int argc, char **argv) {
+    processCommandLine(argc, argv);
 
     DdManager *manager = Cudd_Init(0,0,CUDD_UNIQUE_SLOTS,CUDD_CACHE_SLOTS,0);
 
-    DdNode *dict = loadWords(manager, argv[1]);
-    writeDict(manager, dict, argv[2]);
-    writeSummary(manager, dict);
+    DdNode *dict = 0x00;
+    
+    if (wordFile)
+        dict = loadWords(manager, wordFile);
+    else if (bddInFile)
+        dict = loadBdd(manager, bddInFile);
 
-    DdNode *tmp = matchPattern(manager, dict, argv[3]);
-    Cudd_RecursiveDeref(manager, dict);
-    dict = tmp;
+    if (dict == 0x00) {
+        printf("No dictionary, did you specify one on the command line?\n");
+        exit(-1);
+    }
 
-    printDictionary(manager, dict);
+    if (bddOutFile)
+        writeBddDict(manager, dict, bddOutFile);
+
+    if (dotFile)
+        writeDotDict(manager, dict, dotFile);
+
+    if (pattern) {
+        DdNode *tmp = matchPattern(manager, dict, pattern);
+        Cudd_RecursiveDeref(manager, dict);
+        dict = tmp;
+        printDictionary(manager, dict);
+    }
 
     Cudd_Quit(manager);
+}
+
+
+void processCommandLine(int argc, char **argv) {
+    int i = 1;
+    int help = 0;
+    int error = 0;
+
+    while (i < argc && !error && !help) {
+        if (strcmp(argv[i], "-h") == 0) {
+            help = 1;
+            ++i;
+        } else if (i == argc - 1) {
+            // then we have an option that can't have an argument
+            // (and all remaining args need an argument)
+            error = 1;
+        } else if (strcmp(argv[i], "-ib") == 0) {
+            bddInFile = argv[i+1];
+            i += 2;
+        } else if (strcmp(argv[i], "-ob") == 0) {
+            bddOutFile = argv[i+1];
+            i += 2;
+        } else if (strcmp(argv[i], "-w") == 0) {
+            wordFile = argv[i+1];
+            i += 2;
+        } else if (strcmp(argv[i], "-d") == 0) {
+            dotFile = argv[i+1];
+            i += 2;
+        } else if (strcmp(argv[i], "-p") == 0) {
+            pattern = argv[i+1];
+            i += 2;
+        } else {
+            ++i;
+        }
+    }
+
+    if (error || help || (bddInFile == 0x00 && wordFile == 0x00)) {
+        printf("%d, %d, %d\n", error, help, (bddInFile == 0x00 && wordFile == 0x00));
+        printf("Usage: ./words_bdd [options]\n");
+        printf("\n");
+        printf("Must specify -ib or -w.\n");
+        printf("\n");
+        printf("options:\n");
+        printf("    -ib <file> : read language bdd from file\n");
+        printf("    -ob <file> : write language bdd to file\n");
+        printf("    -w <file>  : read language from word file\n");
+        printf("    -d <file>  : write dot image to file\n");
+        printf("    -p pattern : pattern to match (* is wildcard)\n");
+        printf("    -h         : this help\n");
+        exit(-1);
+    }
 }
 
 
@@ -150,7 +223,7 @@ DdNode *addNonNull(DdManager *manager, DdNode *bddWord, int i) {
 }
 
 
-void writeDict(DdManager *manager, DdNode *dict, char *outFile) {
+void writeDotDict(DdManager *manager, DdNode *dict, char *outFile) {
     DdNode *outputs[] = { dict };
     FILE *f = fopen(outFile, "w");
     if (!f) {
@@ -183,6 +256,8 @@ DdNode *loadWords(DdManager *manager, char *wordsFile) {
         Cudd_RecursiveDeref(manager, dict);
         dict = tmp;
     }
+
+    writeSummary(manager, dict);
 
     return dict;
 }
@@ -262,14 +337,55 @@ void instantiateAndPrintCube(int *cube, char *buf, int i, int size) {
 }
 
 
+// this needs a better implementation
 int setBit(int orig, int bit, int val) {
-    int mask = 1<<bit;
-    if (orig & mask)
-        orig -= mask;
-    orig |= val<<bit;
+    orig =  (orig & ~(1<<bit)) | val<<bit;
     return orig;
 }
 
 int getBit(int i, int bit) {
     return (i & (1<<bit)) ? 1 : 0;
 }
+
+
+DdNode *loadBdd(DdManager *manager, char *bddInFile) {
+    FILE *f = fopen(bddInFile, "r");
+    if (!f) {
+        printf("Error opening %s for reading.\n", bddInFile);
+        exit(-1);
+    }
+
+    DdNode *dict = Dddmp_cuddBddLoad(manager, 
+                                     DDDMP_VAR_MATCHIDS, 
+                                     0x00, 
+                                     0x00, 
+                                     0x00, 
+                                     DDDMP_MODE_BINARY, 
+                                     bddInFile, 
+                                     f);
+
+    fclose(f);
+
+    return dict;
+}
+
+void writeBddDict(DdManager *manager, DdNode *dict, char *bddOutFile) {
+    FILE *f = fopen(bddOutFile, "w");
+    if (!f) {
+        printf("Error opening %s for writing.\n", bddOutFile);
+        exit(-1);
+    }
+
+    Dddmp_cuddBddStore(manager, 
+                       bddOutFile, 
+                       dict, 
+                       0x00, 
+                       0x00, 
+                       DDDMP_MODE_BINARY, 
+                       DDDMP_VARIDS, 
+                       bddOutFile, 
+                       f);
+
+    fclose(f);
+}
+

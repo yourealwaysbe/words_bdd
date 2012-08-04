@@ -1,19 +1,31 @@
 
+Beginnings of a crossword solver implemented using BDDs.
+
 Running
 
-    ./words_bdd words bdd.dot 
+    ./words_bdd -h
 
-reads in a list of words from the file words (e.g. /usr/share/dict/words). 
+gives the options.
 
-Treats each word as a null terminated sequence of ascii chars / bits.
+Suggested usage:
 
-Builds a BDD representing all words in the file.
+    ./words_bdd -w words -ob words.bdd
+    ./words_bdd -ib words.bdd -p "h*ll*"
 
-Outputs some stats and a dot (graphviz) representation of the bdd to bdd.dot
-file.
+The first command reads from the file "words" which should contain a list of
+words in ascii format.  A BDD representing the word file is then written to
+words.bdd.  (Can take some time for large word files.)
 
-To render the dot file, i suggest using sfdp from graphviz (it's the filter for
-large diagrams).
+Suggested word file: /usr/share/dict/words...
+
+The second command reads in the created bdd (from words.bdd), and looks for all
+words matching the pattern "h*ll*" (where * is (non-empty) wildcard).
+
+
+Notes:
+
+When using -d to output a dot file, to render the dot file, i suggest using sfdp
+from graphviz (it's the filter for large diagrams).
 
 The file en.png is a rendering of my /usr/share/dict/words...
 

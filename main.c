@@ -7,8 +7,23 @@
 #include "dddmp.h"
 
 #define MAX_WORD_SIZE 25
-
+#define DIR_ACROSS 'A'
+#define DIR_DOWN 'D'
 #define ANY_CHAR '*'
+
+
+typedef struct {
+    int across;
+    int x;
+    int y;
+    char pattern[MAX_WORD_SIZE];
+} Clue;
+
+typedef struct {
+    int size;
+    Clue *clues;
+} Crossword;
+
 
 DdNode *addWord(DdManager *manager, DdNode *dict, char *word);
 DdNode *getWord(DdManager *manager, char* word);
@@ -22,14 +37,14 @@ DdNode *matchPattern(DdManager *manager, DdNode *dict, char *pattern);
 DdNode *matchCrossPattern(DdManager *manager, DdNode *dict, char *pattern);
 void printDictionary(DdManager *manager, DdNode *dict);
 void instantiateAndPrintCube(int *cube, char *buf, int i, int size);
-void printMatches(DdManager *manager, DdNode *dict, int *vars, int size);
-void instantiateAndPrintWord(int *cube, char *buf, int i, int *vars, int size);
 int setBit(int orig, int bit, int val);
 int getBit(int i, int bit);
 void processCommandLine(int argc, char **argv);
 DdNode *loadBdd(DdManager *manager, char *bddInFile);
 void writeBddDict(DdManager *manager, DdNode *dict, char *bddOutFile);
 int bddIsEmpty(DdManager *manager, DdNode *bdd);
+Crossword readCrossword(char *crosswordFile);
+void printCrossword(Crossword cw);
 
 int totalChars = 0;
 int totalWords = 0;
@@ -40,6 +55,7 @@ char *bddOutFile = 0x00;
 char *wordFile = 0x00;
 char *dotFile = 0x00;
 char *pattern = 0x00;
+char *crossword = 0x00;
 
 int main(int argc, char **argv) {
     processCommandLine(argc, argv);
@@ -65,10 +81,13 @@ int main(int argc, char **argv) {
         writeDotDict(manager, dict, dotFile);
 
     if (pattern) {
-        DdNode *tmp = matchCrossPattern(manager, dict, pattern);
-        Cudd_RecursiveDeref(manager, dict);
-        dict = tmp;
-        // printDictionary(manager, dict);
+        DdNode *match = matchPattern(manager, dict, pattern);
+        printDictionary(manager, match);
+    }
+
+    if (crossword) {
+        Crossword cw = readCrossword(crossword);
+        printCrossword(cw);
     }
 
     Cudd_Quit(manager);
@@ -103,6 +122,9 @@ void processCommandLine(int argc, char **argv) {
         } else if (strcmp(argv[i], "-p") == 0) {
             pattern = argv[i+1];
             i += 2;
+        } else if (strcmp(argv[i], "-c") == 0) {
+            crossword = argv[i+1];
+            i += 2;
         } else {
             ++i;
         }
@@ -120,6 +142,7 @@ void processCommandLine(int argc, char **argv) {
         printf("    -w <file>  : read language from word file\n");
         printf("    -d <file>  : write dot image to file\n");
         printf("    -p pattern : pattern to match (* is wildcard)\n");
+        printf("    -c <file>  : file to read a crossword description from\n");
         printf("    -h         : this help\n");
         exit(-1);
     }
@@ -297,62 +320,7 @@ DdNode *matchPattern(DdManager *manager, DdNode *dict, char *pattern) {
     return newDict;
 }
 
-DdNode *matchCrossPattern(DdManager *manager, DdNode *dict, char *pattern) {
-    DdNode *w1 = matchPattern(manager, dict, pattern);
-    Cudd_Ref(w1);
-    DdNode *w2 = matchPattern(manager, dict, pattern);
-    Cudd_Ref(w2);
 
-    int base = Cudd_ReadSize(manager) + 1;
-    int size = 8 * (strlen(pattern) + 1);
-
-    int *vars1 = (int*)malloc(size * sizeof(int));
-    for (int i = 0; i < size; ++i) {
-        int v = base + i;
-
-        vars1[i] = v;
-
-        DdNode *b = Cudd_bddIthVar(manager, v);
-        DdNode *tmp = Cudd_bddCompose(manager, w1, b, i);
-        Cudd_Ref(tmp);
-        Cudd_RecursiveDeref(manager, w1);
-        w1 = tmp;
-    }
-
-    int *vars2 = (int*)malloc(size * sizeof(int));
-    for (int i = 0; i < size; ++i) {
-        int v = (i <= 8 ? base + i : base + size + i);
-
-        vars2[i] = v;
-
-        DdNode *b = Cudd_bddIthVar(manager, v);
-        DdNode *tmp = Cudd_bddCompose(manager, w2, b, i);
-        Cudd_Ref(tmp);
-        Cudd_RecursiveDeref(manager, w2);
-        w2 = tmp;
-    }
-
-    printf("w1 : %d\n", bddIsEmpty(manager, w1));
-    printf("w2 : %d\n", bddIsEmpty(manager, w2));
-
-    DdNode *newDict = Cudd_bddAnd(manager, w1, w2);
-    Cudd_Ref(newDict);
-    Cudd_RecursiveDeref(manager, w1);
-    Cudd_RecursiveDeref(manager, w2);
-
-    printf("newDict : %d\n", bddIsEmpty(manager, newDict));
-
-
-    printf("number 1\n");
-    printMatches(manager, newDict, vars1, size);
-    printf("number 2\n");
-    printMatches(manager, newDict, vars2, size);
-
-    free(vars1);
-    free(vars2);
-
-    return newDict;
-}
 
 void printDictionary(DdManager *manager, DdNode *dict) {
     DdGen *gen;
@@ -395,65 +363,6 @@ void instantiateAndPrintCube(int *cube, char *buf, int i, int size) {
         }
     }
 }
-
-
-
-/**
- * printMatches(manager, dict, vars, size)
- *
- * manager is the DdManager
- * dict is the bdd from which to read the word matches
- * vars is the list of variables that make up the word (including a set of
- * variables to hold the terminating null)
- * size is the size of vars
- *
- * prints all words (assignments) in the dict for the given variables
- */
-void printMatches(DdManager *manager, DdNode *dict, int *vars, int size) {
-    DdGen *gen;
-    int *cube;
-    CUDD_VALUE_TYPE val;
-    char *buf = (char*)malloc(size * sizeof(char));
-   
-    // kind of assumes here that the bdd only has the vars in vars (otherwise we
-    // may get repeated solutions)
-    Cudd_ForeachCube(manager, dict, gen, cube, val) {
-        instantiateAndPrintWord(cube, buf, 0, vars, size);
-    }
-
-    free(buf);
-}
-
-/* instantiateAndPrintWord(cube, buf, i, vars, size)
- *
- * Given a cube of length given by size, instantiate all cube values of 2 to
- * first 0 and then 1, printing out the results.  i is the index we've recursed
- * down to, buf is the buffer to write the words to print.
- */
-void instantiateAndPrintWord(int *cube, char *buf, int i, int *vars, int size) {
-    if (i == size) {
-        printf("%s.\n", buf);
-    } else {
-        int cv = cube[vars[i]];
-        if (cv != 2) {
-            int bit = i%8;
-            int cpos = i / 8;
-            buf[cpos] = setBit(buf[cpos], bit, cv);
-            // if we just added a null byte, we're done
-            if (bit == 7 && buf[cpos] == 0x00) 
-                instantiateAndPrintWord(cube, buf, size, vars, size);
-            else 
-                instantiateAndPrintWord(cube, buf, i+1, vars, size);
-        } else {
-            cube[vars[i]] = 0;
-            instantiateAndPrintWord(cube, buf, i, vars, size);
-            cube[vars[i]] = 1;
-            instantiateAndPrintWord(cube, buf, i, vars, size);
-            cube[vars[i]] = 2;
-        }
-    }
-}
-
 
 
 
@@ -512,4 +421,115 @@ int bddIsEmpty(DdManager *manager, DdNode *bdd) {
     DdNode *zero = Cudd_ReadLogicZero(manager);
     return bdd == zero;
 }
+
+
+Crossword readCrossword(char *crosswordFile) {
+    Crossword cw;
+
+    FILE *f = fopen(crosswordFile, "r");
+    if (!f) {
+        printf("Error opening %s for read.\n", crosswordFile);
+        exit(-1);
+    }
+
+    // count lines
+    cw.size = 0;
+    char c;
+    while ((c = getc(f)) != EOF) 
+        if (c == '\n') cw.size++;
+
+    cw.clues = (Clue*)malloc(cw.size * sizeof(Clue));
+
+    // read crossword
+    rewind(f);
+    char dir;
+    int x;
+    int y;
+    char pat[MAX_WORD_SIZE];
+    int i = 0;
+    while (fscanf(f, "%c %d %d %s\n", &dir, &x, &y, pat) != EOF) {
+        cw.clues[i].across = (dir == DIR_ACROSS);
+        cw.clues[i].x = x;
+        cw.clues[i].y = y;
+        strcpy(cw.clues[i].pattern, pat);
+        i++;
+    }
+
+    fclose(f);
+
+    return cw;
+}
+
+
+
+void printCrossword(Crossword cw) {
+    for (int i = 0; i < cw.size; ++i) {
+        printf("%c %d %d %s\n", 
+               (cw.clues[i].across ? DIR_ACROSS : DIR_DOWN),
+               cw.clues[i].x,
+               cw.clues[i].y,
+               cw.clues[i].pattern);
+    }
+}
+
+
+
+// preliminary code
+DdNode *matchCrossPattern(DdManager *manager, DdNode *dict, char *pattern) {
+    DdNode *w1 = matchPattern(manager, dict, pattern);
+    Cudd_Ref(w1);
+    DdNode *w2 = matchPattern(manager, dict, pattern);
+    Cudd_Ref(w2);
+
+    int base = Cudd_ReadSize(manager) + 1;
+    int size = 8 * (strlen(pattern) + 1);
+
+    int *vars1 = (int*)malloc(size * sizeof(int));
+    for (int i = 0; i < size; ++i) {
+        int v = base + i;
+
+        vars1[i] = v;
+
+        DdNode *b = Cudd_bddIthVar(manager, v);
+        DdNode *tmp = Cudd_bddCompose(manager, w1, b, i);
+        Cudd_Ref(tmp);
+        Cudd_RecursiveDeref(manager, w1);
+        w1 = tmp;
+    }
+
+    int *vars2 = (int*)malloc(size * sizeof(int));
+    for (int i = 0; i < size; ++i) {
+        int v = (i <= 8 ? base + i : base + size + i);
+
+        vars2[i] = v;
+
+        DdNode *b = Cudd_bddIthVar(manager, v);
+        DdNode *tmp = Cudd_bddCompose(manager, w2, b, i);
+        Cudd_Ref(tmp);
+        Cudd_RecursiveDeref(manager, w2);
+        w2 = tmp;
+    }
+
+    printf("w1 : %d\n", bddIsEmpty(manager, w1));
+    printf("w2 : %d\n", bddIsEmpty(manager, w2));
+
+    DdNode *newDict = Cudd_bddAnd(manager, w1, w2);
+    Cudd_Ref(newDict);
+    Cudd_RecursiveDeref(manager, w1);
+    Cudd_RecursiveDeref(manager, w2);
+
+    printf("newDict : %d\n", bddIsEmpty(manager, newDict));
+
+
+    printf("number 1\n");
+    // printMatches(manager, newDict, vars1, size);
+    printf("number 2\n");
+    // printMatches(manager, newDict, vars2, size);
+
+    free(vars1);
+    free(vars2);
+
+    return newDict;
+}
+
 

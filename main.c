@@ -50,6 +50,8 @@ DdNode *getClueBdd(DdManager *manager,
                    Crossword *cw, 
                    Clue *clue,
                    int clueIndex);
+int getClueBddVarIndex(Crossword *cw, Clue *clue, int pos, int bit);
+int getClueBddEndVarIndex(int clueIndex, int bit);
 DdNode *getClueBddVar(DdManager *manager, 
                       Crossword *cw, 
                       Clue *clue, 
@@ -59,6 +61,14 @@ DdNode *getClueBddEndVar(DdManager *manager,
                          int clueIndex,
                          int bit);
 DdNode *encodeCrossword(DdManager *manager, DdNode *dict, Crossword *cw);
+void printSolutions(DdManager *manager, DdNode *cwBdd, Crossword *cw);
+int *getRelevanceMask(Crossword* cw, int size);
+void instantiateAndPrintSolutionCube(int *cube, 
+                                     int *mask, 
+                                     int i, 
+                                     int size, 
+                                     Crossword *cw);
+void printSolution(int *cube, int *mask, int size, Crossword *cw);
 
 
 int totalChars = 0;
@@ -105,9 +115,10 @@ int main(int argc, char **argv) {
         printCrossword(&cw);
         DdNode *cwBdd = encodeCrossword(manager, dict, &cw);
         if (cwBdd != Cudd_ReadLogicZero(manager))
-            printf("Has solution!\n");
+            printf("\nHas solutions!\n");
         else
-            printf("Has no solution!\n");
+            printf("\nHas no solutions!\n");
+        printSolutions(manager, cwBdd, &cw);
     }
 
     Cudd_Quit(manager);
@@ -537,11 +548,14 @@ DdNode *getClueBdd(DdManager *manager,
 }
 
 
-DdNode *getClueBddVar(DdManager *manager, 
-                      Crossword *cw, 
-                      Clue *clue, 
-                      int pos,
-                      int bit) {
+int getCoordBddVarIndex(int x, int y, int bit, Crossword *cw) {
+    return 8*(MAX_WORD_SIZE + cw->size + y * MAX_WORD_SIZE + x) + bit;
+}
+
+int getClueBddVarIndex(Crossword *cw, 
+                       Clue *clue, 
+                       int pos,
+                       int bit) {
     int x, y;
     if (clue->across) {
         x = clue->x + pos;
@@ -550,13 +564,26 @@ DdNode *getClueBddVar(DdManager *manager,
         x = clue->x;
         y = clue->y + pos;
     }
-    int var = 8*(MAX_WORD_SIZE + cw->size + MAX_WORD_SIZE * y + x) + bit;
+    return getCoordBddVarIndex(x, y, bit, cw);
+}
+
+
+DdNode *getClueBddVar(DdManager *manager, 
+                      Crossword *cw, 
+                      Clue *clue, 
+                      int pos,
+                      int bit) {
+    int var = getClueBddVarIndex(cw, clue, pos, bit);
     return Cudd_bddIthVar(manager, var);
+}
+
+int getClueBddEndVarIndex(int clueIndex, int bit) {
+    return 8 * (MAX_WORD_SIZE + clueIndex) + bit;
 }
 
 
 DdNode *getClueBddEndVar(DdManager *manager, int clueIndex, int bit) {
-    return Cudd_bddIthVar(manager, 8 * (MAX_WORD_SIZE + clueIndex) + bit);
+    return Cudd_bddIthVar(manager, getClueBddEndVarIndex(clueIndex, bit));
 }
 
 
@@ -576,5 +603,96 @@ DdNode *encodeCrossword(DdManager *manager, DdNode *dict, Crossword *cw) {
         cwBdd = tmp;
     }
     return cwBdd;
+}
+
+
+void printSolutions(DdManager *manager, DdNode *cwBdd, Crossword *cw) {
+    DdGen *gen;
+    int *cube;
+    CUDD_VALUE_TYPE val;
+    
+    int nvars = Cudd_ReadSize(manager);
+    int *mask = getRelevanceMask(cw, nvars);
+
+    Cudd_ForeachCube(manager, cwBdd, gen, cube, val) {
+        instantiateAndPrintSolutionCube(cube, mask, 0, nvars, cw);
+    }
+
+    free(mask);
+}
+
+int *getRelevanceMask(Crossword* cw, int size) {
+    int *mask = (int*)malloc(size*sizeof(int));
+
+    for (int i = 0; i < size; ++i)
+        mask[i] = 0;
+
+    for (int i = 0; i < cw->size; ++i) {
+        int clueLen = strlen(cw->clues[i].pattern);
+        for (int pos = 0; pos < clueLen; ++pos) {
+            for (int b = 0; b < 8; ++b) {
+                int idx = getClueBddVarIndex(cw, &cw->clues[i], pos, b);
+                mask[idx] = 1;
+            }
+        }
+        for (int b = 0; b < 8; ++b) {
+            int idx = getClueBddEndVarIndex(i, b);
+            mask[idx] = 1;
+        }
+    }
+
+    return mask;
+}
+
+/* instantiateAndPrintSolutionCube(cube, mask, i, size)
+ *
+ * Given a cube of length given by size, instantiate all cube[i] values of 2 to
+ * first 0 and then 1 if mask[i] is true, printing out the results in crossword
+ * form.  i is the index we've recursed down to.
+ */
+void instantiateAndPrintSolutionCube(int *cube, 
+                                     int *mask, 
+                                     int i, 
+                                     int size, 
+                                     Crossword *cw) {
+    if (i == size) {
+        printSolution(cube, mask, size, cw);
+    } else if (!mask[i] || cube[i] != 2) {
+        instantiateAndPrintSolutionCube(cube, mask, i + 1, size, cw);
+    } else {
+        cube[i] = 0;
+        instantiateAndPrintSolutionCube(cube, mask, i + 1, size, cw);
+        cube[i] = 1;
+        instantiateAndPrintSolutionCube(cube, mask, i + 1, size, cw);
+        cube[i] = 2;
+    }
+}
+
+void printSolution(int *cube, int *mask, int size, Crossword *cw) {
+    printf("\n");
+    int finished = 0;
+    for (int y = 0; y < MAX_WORD_SIZE && !finished; ++y) {
+        // don't print spaces straight away, but only when we're about to output
+        // a non-space     
+        int spaceSinceLastChar = 0;
+        for (int x = 0; x < MAX_WORD_SIZE && !finished; ++x) {
+            int charBegin = getCoordBddVarIndex(x, y, 0, cw);
+            finished = (charBegin >= size);
+            if (!finished && mask[charBegin]) {
+                char c = 0x00;
+                for (int b = 0; b < 8; ++b) {
+                    c = setBit(c, b, cube[getCoordBddVarIndex(x, y, b, cw)]);
+                }
+                for (int i = 0; i < spaceSinceLastChar; ++i)
+                    printf(" ");
+                printf("%c", c);
+                spaceSinceLastChar = 0;
+            } else {
+                spaceSinceLastChar++;
+            }
+        }
+        printf("\n");
+    }
+    printf("\n");
 }
 

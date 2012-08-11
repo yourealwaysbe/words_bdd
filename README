@@ -31,9 +31,10 @@ Solving Crosswords
 
 Write a crossword file in the following format (no blank lines):
 
-    A 0 0 h*llo
-    D 1 0 e*t
+    A 0 0 h*ll*
+    D 1 0 *a*
     A 0 2 a*e
+    D 4 0 *rch*d
 
 That is
 
@@ -52,12 +53,30 @@ If your crossword file is test.cw, run
 
 where words.bdd is created as above.
 
-Currently it'll just say whether a solution exists.  For our example, a solution
-does exist:
+It will print out all solutions.  For our example:
+
+    A 0 0 h*ll*
+    D 1 0 *a*
+    A 0 2 a*e
+    D 4 0 *rch*d
+
+    Has solutions!
 
     hello
-     a
-    ate
+     a  r
+    ate c
+        h
+        i
+        d
+
+
+    hello
+     a  r
+    are c
+        h
+        i
+        d
+
 
 -----
 Notes

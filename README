@@ -52,7 +52,7 @@ If your crossword file is test.cw, run
 
 where words.bdd is created as above.
 
-Currently it'll just say whether a solution exists.  For our example a solution
+Currently it'll just say whether a solution exists.  For our example, a solution
 does exist:
 
     hello

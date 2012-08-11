@@ -44,7 +44,22 @@ DdNode *loadBdd(DdManager *manager, char *bddInFile);
 void writeBddDict(DdManager *manager, DdNode *dict, char *bddOutFile);
 int bddIsEmpty(DdManager *manager, DdNode *bdd);
 Crossword readCrossword(char *crosswordFile);
-void printCrossword(Crossword cw);
+void printCrossword(Crossword *cw);
+DdNode *getClueBdd(DdManager *manager, 
+                   DdNode *dict, 
+                   Crossword *cw, 
+                   Clue *clue,
+                   int clueIndex);
+DdNode *getClueBddVar(DdManager *manager, 
+                      Crossword *cw, 
+                      Clue *clue, 
+                      int pos, 
+                      int bit);
+DdNode *getClueBddEndVar(DdManager *manager, 
+                         int clueIndex,
+                         int bit);
+DdNode *encodeCrossword(DdManager *manager, DdNode *dict, Crossword *cw);
+
 
 int totalChars = 0;
 int totalWords = 0;
@@ -87,7 +102,12 @@ int main(int argc, char **argv) {
 
     if (crossword) {
         Crossword cw = readCrossword(crossword);
-        printCrossword(cw);
+        printCrossword(&cw);
+        DdNode *cwBdd = encodeCrossword(manager, dict, &cw);
+        if (cwBdd != Cudd_ReadLogicZero(manager))
+            printf("Has solution!\n");
+        else
+            printf("Has no solution!\n");
     }
 
     Cudd_Quit(manager);
@@ -462,74 +482,99 @@ Crossword readCrossword(char *crosswordFile) {
 
 
 
-void printCrossword(Crossword cw) {
-    for (int i = 0; i < cw.size; ++i) {
+void printCrossword(Crossword *cw) {
+    for (int i = 0; i < cw->size; ++i) {
         printf("%c %d %d %s\n", 
-               (cw.clues[i].across ? DIR_ACROSS : DIR_DOWN),
-               cw.clues[i].x,
-               cw.clues[i].y,
-               cw.clues[i].pattern);
+               (cw->clues[i].across ? DIR_ACROSS : DIR_DOWN),
+               cw->clues[i].x,
+               cw->clues[i].y,
+               cw->clues[i].pattern);
     }
 }
 
 
+DdNode *getClueBdd(DdManager *manager, 
+                   DdNode *dict, 
+                   Crossword *cw, 
+                   Clue *clue,
+                   int clueIndex) {
+    int size = strlen(clue->pattern);
 
-// preliminary code
-DdNode *matchCrossPattern(DdManager *manager, DdNode *dict, char *pattern) {
-    DdNode *w1 = matchPattern(manager, dict, pattern);
-    Cudd_Ref(w1);
-    DdNode *w2 = matchPattern(manager, dict, pattern);
-    Cudd_Ref(w2);
+    DdNode *patternBdd = getWordWildcards(manager, clue->pattern);
+    DdNode *clueBdd = Cudd_bddAnd(manager, patternBdd, dict);
+    Cudd_RecursiveDeref(manager, patternBdd);
 
-    int base = Cudd_ReadSize(manager) + 1;
-    int size = 8 * (strlen(pattern) + 1);
-
-    int *vars1 = (int*)malloc(size * sizeof(int));
+    // replace all variables in word with position vars
     for (int i = 0; i < size; ++i) {
-        int v = base + i;
-
-        vars1[i] = v;
-
-        DdNode *b = Cudd_bddIthVar(manager, v);
-        DdNode *tmp = Cudd_bddCompose(manager, w1, b, i);
-        Cudd_Ref(tmp);
-        Cudd_RecursiveDeref(manager, w1);
-        w1 = tmp;
+        for (int b = 0; b < 8; ++b) {
+            DdNode *posVar = getClueBddVar(manager, cw, clue, i, b);
+            DdNode *tmp = Cudd_bddCompose(manager, clueBdd, posVar, 8*i + b);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, clueBdd);
+            clueBdd = tmp;
+        }
     }
 
-    int *vars2 = (int*)malloc(size * sizeof(int));
-    for (int i = 0; i < size; ++i) {
-        int v = (i <= 8 ? base + i : base + size + i);
-
-        vars2[i] = v;
-
-        DdNode *b = Cudd_bddIthVar(manager, v);
-        DdNode *tmp = Cudd_bddCompose(manager, w2, b, i);
+    // replace 0x00 ending with end var for clue
+    for (int b = 0; b < 8; ++b) {
+        DdNode *endVar = getClueBddEndVar(manager, clueIndex, b);
+        DdNode *tmp = Cudd_bddCompose(manager, clueBdd, endVar, 8*size + b);
         Cudd_Ref(tmp);
-        Cudd_RecursiveDeref(manager, w2);
-        w2 = tmp;
+        Cudd_RecursiveDeref(manager, clueBdd);
+        clueBdd = tmp;
     }
 
-    printf("w1 : %d\n", bddIsEmpty(manager, w1));
-    printf("w2 : %d\n", bddIsEmpty(manager, w2));
+    // existentially abstract all other vars in dict
+    for (int i = 8*(size+1); i < 8*MAX_WORD_SIZE; ++i) {
+        DdNode *charVar = Cudd_bddIthVar(manager, i);
+        DdNode *tmp = Cudd_bddExistAbstract(manager, clueBdd, charVar);
+        Cudd_Ref(tmp);
+        Cudd_RecursiveDeref(manager, clueBdd);
+        clueBdd = tmp;
+    }
 
-    DdNode *newDict = Cudd_bddAnd(manager, w1, w2);
-    Cudd_Ref(newDict);
-    Cudd_RecursiveDeref(manager, w1);
-    Cudd_RecursiveDeref(manager, w2);
-
-    printf("newDict : %d\n", bddIsEmpty(manager, newDict));
-
-
-    printf("number 1\n");
-    // printMatches(manager, newDict, vars1, size);
-    printf("number 2\n");
-    // printMatches(manager, newDict, vars2, size);
-
-    free(vars1);
-    free(vars2);
-
-    return newDict;
+    return clueBdd;
 }
 
+
+DdNode *getClueBddVar(DdManager *manager, 
+                      Crossword *cw, 
+                      Clue *clue, 
+                      int pos,
+                      int bit) {
+    int x, y;
+    if (clue->across) {
+        x = clue->x + pos;
+        y = clue->y;
+    } else {
+        x = clue->x;
+        y = clue->y + pos;
+    }
+    int var = 8*(MAX_WORD_SIZE + cw->size + MAX_WORD_SIZE * y + x) + bit;
+    return Cudd_bddIthVar(manager, var);
+}
+
+
+DdNode *getClueBddEndVar(DdManager *manager, int clueIndex, int bit) {
+    return Cudd_bddIthVar(manager, 8 * (MAX_WORD_SIZE + clueIndex) + bit);
+}
+
+
+DdNode *encodeCrossword(DdManager *manager, DdNode *dict, Crossword *cw) {
+    DdNode *cwBdd = Cudd_ReadOne(manager);
+    Cudd_Ref(cwBdd);
+
+    for (int i = 0; i < cw->size; ++i) {
+        DdNode *clueBdd = getClueBdd(manager, 
+                                     dict, 
+                                     cw,
+                                     &cw->clues[i],
+                                     i);
+        DdNode *tmp = Cudd_bddAnd(manager, cwBdd, clueBdd);
+        Cudd_Ref(tmp);
+        Cudd_RecursiveDeref(manager, cwBdd);
+        cwBdd = tmp;
+    }
+    return cwBdd;
+}
 

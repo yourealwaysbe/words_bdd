@@ -7,7 +7,10 @@ Running
 
 gives the options.
 
-Suggested usage:
+
+---------------
+Getting started
+---------------
 
     ./words_bdd -w words -ob words.bdd
     ./words_bdd -ib words.bdd -p "h*ll*"
@@ -22,7 +25,43 @@ The second command reads in the created bdd (from words.bdd), and looks for all
 words matching the pattern "h*ll*" (where * is (non-empty) wildcard).
 
 
-Notes:
+------------------
+Solving Crosswords
+------------------
+
+Write a crossword file in the following format (no blank lines):
+
+    A 0 0 h*llo
+    D 1 0 e*t
+    A 0 2 a*e
+
+That is
+
+    <dir> <x start> <y start> <pattern>
+
+where 
+
+    <dir> is A if the clue is across, D if down.
+    <x start> is the x position (from 0) of the first square
+    <y start> is the y position (from 0) of the first square
+    <pattern> is the word pattern, using * for unknown.
+
+If your crossword file is test.cw, run
+
+    ./words_bdd -ib words.bdd -c test.cw
+
+where words.bdd is created as above.
+
+Currently it'll just say whether a solution exists.  For our example a solution
+does exist:
+
+    hello
+     a
+    ate
+
+-----
+Notes
+-----
 
 When using -d to output a dot file, to render the dot file, i suggest using sfdp
 from graphviz (it's the filter for large diagrams).

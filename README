@@ -24,10 +24,60 @@ Suggested word file: /usr/share/dict/words...
 The second command reads in the created bdd (from words.bdd), and looks for all
 words matching the pattern "h*ll*" (where * is (non-empty) wildcard).
 
+------------------------------------
+Solving Crosswords -- Diagram Format
+------------------------------------
 
-------------------
-Solving Crosswords
-------------------
+Write a crossword file in the following format:
+
+    h*ll*
+     a  r
+    a*e c
+        h
+        *
+        d
+
+That is, a diagramatical layout with * for unknowns.
+
+If your crossword file is test.cwd, run
+
+    ./words_bdd -ib words.bdd -cwd test.cwd
+
+where words.bdd is created as above.
+
+It will print out all solutions.  For our example:
+
+    Crossword read:
+
+    h*ll*
+     a  r
+    a*e c
+        h
+        *
+        d
+
+    Found solutions!
+
+    hello
+     a  r
+    ate c
+        h
+        i
+        d
+
+
+    hello
+     a  r
+    are c
+        h
+        i
+        d
+
+
+
+--------------------------------
+Solving Crosswords -- Raw Format
+--------------------------------
 
 Write a crossword file in the following format (no blank lines):
 
@@ -47,20 +97,22 @@ where
     <y start> is the y position (from 0) of the first square
     <pattern> is the word pattern, using * for unknown.
 
-If your crossword file is test.cw, run
+If your crossword file is test.rcw, run
 
-    ./words_bdd -ib words.bdd -c test.cw
+    ./words_bdd -ib words.bdd -rcw test.cw
 
 where words.bdd is created as above.
 
 It will print out all solutions.  For our example:
+
+    Crossword read:
 
     A 0 0 h*ll*
     D 1 0 *a*
     A 0 2 a*e
     D 4 0 *rch*d
 
-    Has solutions!
+    Found solutions!
 
     hello
      a  r

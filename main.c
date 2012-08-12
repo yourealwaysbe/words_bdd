@@ -1,6 +1,7 @@
 
 
 #include <stdio.h>
+#include <ctype.h>
 
 #include "util.h"
 #include "cudd.h"
@@ -43,7 +44,9 @@ void processCommandLine(int argc, char **argv);
 DdNode *loadBdd(DdManager *manager, char *bddInFile);
 void writeBddDict(DdManager *manager, DdNode *dict, char *bddOutFile);
 int bddIsEmpty(DdManager *manager, DdNode *bdd);
-Crossword readCrossword(char *crosswordFile);
+Crossword readCrossword(char *crosswordFile, int rawFormat);
+Crossword readCrosswordRaw(char *crosswordFile);
+Crossword readCrosswordDiagram(char *crosswordFile);
 void printCrossword(Crossword *cw);
 DdNode *getClueBdd(DdManager *manager, 
                    DdNode *dict, 
@@ -69,6 +72,19 @@ void instantiateAndPrintSolutionCube(int *cube,
                                      int size, 
                                      Crossword *cw);
 void printSolution(int *cube, int *mask, int size, Crossword *cw);
+void freeCrossword(Crossword *cw);
+int acrossStart(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], int x, int y);
+int downStart(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], int x, int y);
+int isOccupying(char c);
+void getAcrossPattern(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], 
+                      int x,
+                      int y,
+                      char *pattern);
+void getDownPattern(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], 
+                    int x,
+                    int y,
+                    char *pattern);
+
 
 
 int totalChars = 0;
@@ -81,6 +97,7 @@ char *wordFile = 0x00;
 char *dotFile = 0x00;
 char *pattern = 0x00;
 char *crossword = 0x00;
+int  cwRawFormat = 0; // = 1 if in diagram format
 
 int main(int argc, char **argv) {
     processCommandLine(argc, argv);
@@ -111,14 +128,15 @@ int main(int argc, char **argv) {
     }
 
     if (crossword) {
-        Crossword cw = readCrossword(crossword);
-        printCrossword(&cw);
+        Crossword cw = readCrossword(crossword, cwRawFormat);
         DdNode *cwBdd = encodeCrossword(manager, dict, &cw);
-        if (cwBdd != Cudd_ReadLogicZero(manager))
-            printf("\nHas solutions!\n");
-        else
-            printf("\nHas no solutions!\n");
-        printSolutions(manager, cwBdd, &cw);
+        if (cwBdd == Cudd_ReadLogicZero(manager))
+            printf("\nNo solutions found!\n");
+        else {
+            printf("\nFound solutions!\n");
+            printSolutions(manager, cwBdd, &cw);
+        }
+        freeCrossword(&cw);
     }
 
     Cudd_Quit(manager);
@@ -153,8 +171,13 @@ void processCommandLine(int argc, char **argv) {
         } else if (strcmp(argv[i], "-p") == 0) {
             pattern = argv[i+1];
             i += 2;
-        } else if (strcmp(argv[i], "-c") == 0) {
+        } else if (strcmp(argv[i], "-rcw") == 0) {
             crossword = argv[i+1];
+            cwRawFormat = 1;
+            i += 2;
+        } else if (strcmp(argv[i], "-cwd") == 0) {
+            crossword = argv[i+1];
+            cwRawFormat = 0;
             i += 2;
         } else {
             ++i;
@@ -173,7 +196,8 @@ void processCommandLine(int argc, char **argv) {
         printf("    -w <file>  : read language from word file\n");
         printf("    -d <file>  : write dot image to file\n");
         printf("    -p pattern : pattern to match (* is wildcard)\n");
-        printf("    -c <file>  : file to read a crossword description from\n");
+        printf("    -rc <file> : file to read a crossword description from (in raw format)\n");
+        printf("    -cd <file> : file to read a crossword description from (in diagram format)\n");
         printf("    -h         : this help\n");
         exit(-1);
     }
@@ -454,7 +478,15 @@ int bddIsEmpty(DdManager *manager, DdNode *bdd) {
 }
 
 
-Crossword readCrossword(char *crosswordFile) {
+Crossword readCrossword(char *crosswordFile, int rawFormat) {
+    if (rawFormat)
+        return readCrosswordRaw(crosswordFile);
+    else
+        return readCrosswordDiagram(crosswordFile);
+}
+
+
+Crossword readCrosswordRaw(char *crosswordFile) {
     Crossword cw;
 
     FILE *f = fopen(crosswordFile, "r");
@@ -488,9 +520,83 @@ Crossword readCrossword(char *crosswordFile) {
 
     fclose(f);
 
+    printf("Crossword read:\n\n");
+    printCrossword(&cw);
+
     return cw;
 }
 
+
+Crossword readCrosswordDiagram(char *crosswordFile) {
+    Crossword cw;
+
+    FILE *f = fopen(crosswordFile, "r");
+    if (!f) {
+        printf("Error opening %s for read.\n", crosswordFile);
+        exit(-1);
+    }
+
+    // read crossword to grid and print for user
+    printf("Crossword read:\n\n");
+    char grid[MAX_WORD_SIZE][MAX_WORD_SIZE] = { { 0 } };
+    char c;
+    int x = 0;
+    int y = 0;
+    while ((c = getc(f)) != EOF) {
+        printf("%c", c);
+        if (x >= MAX_WORD_SIZE || y >= MAX_WORD_SIZE) {
+            printf("Crossword in %s too big (must be within %dx%d).\n",
+                   crosswordFile,
+                   MAX_WORD_SIZE,
+                   MAX_WORD_SIZE);
+            exit(-1);
+        }
+        if (c != '\n') {
+            grid[x++][y] = c;
+        } else {
+            x = 0;
+            y++;
+        }
+    }
+
+    fclose(f);
+
+    cw.size = 0;
+    // count clues 
+    for (y = 0; y < MAX_WORD_SIZE; ++y) {
+        for (x = 0; x < MAX_WORD_SIZE; ++x) {
+            if (acrossStart(&grid, x, y))
+                cw.size++;
+            if (downStart(&grid, x, y))
+                cw.size++;
+        }
+    }
+
+    // read crossword
+    cw.clues = (Clue*)malloc(cw.size * sizeof(Clue));
+
+    int i = 0;
+    for (y = 0; y < MAX_WORD_SIZE; ++y) {
+        for (x = 0; x < MAX_WORD_SIZE; ++x) {
+            if (acrossStart(&grid, x, y)) {
+                cw.clues[i].across = 1;
+                cw.clues[i].x = x;
+                cw.clues[i].y = y;
+                getAcrossPattern(&grid, x, y, cw.clues[i].pattern);
+                i++;
+            }
+            if (downStart(&grid, x, y)) {
+                cw.clues[i].across = 0;
+                cw.clues[i].x = x;
+                cw.clues[i].y = y;
+                getDownPattern(&grid, x, y, cw.clues[i].pattern);
+                i++;
+            }
+        }
+    }
+
+    return cw;
+}
 
 
 void printCrossword(Crossword *cw) {
@@ -694,5 +800,68 @@ void printSolution(int *cube, int *mask, int size, Crossword *cw) {
         printf("\n");
     }
     printf("\n");
+}
+
+
+void freeCrossword(Crossword *cw) {
+    free(cw->clues);
+}
+
+
+int acrossStart(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], int x, int y) {
+    return (x == 0 && 
+            x < MAX_WORD_SIZE - 1 && 
+            y >= 0 &&
+            y < MAX_WORD_SIZE &&
+            isOccupying((*grid)[x][y]) && 
+            isOccupying((*grid)[x + 1][y])) ||
+           (x > 0 && 
+            x < MAX_WORD_SIZE && 
+            y >= 0 &&
+            y < MAX_WORD_SIZE &&
+            (*grid)[x - 1][y] == ' ' &&
+            isOccupying((*grid)[x][y]) && 
+            isOccupying((*grid)[x + 1][y])); 
+}
+
+int downStart(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], int x, int y) {
+    return (y == 0 && 
+            y < MAX_WORD_SIZE - 1 && 
+            x >= 0 &&
+            x < MAX_WORD_SIZE &&
+            isOccupying((*grid)[x][y]) && 
+            isOccupying((*grid)[x][y + 1])) ||
+           (y > 0 && 
+            y < MAX_WORD_SIZE && 
+            x >= 0 &&
+            x < MAX_WORD_SIZE &&
+            (*grid)[x][y - 1] == ' ' &&
+            isOccupying((*grid)[x][y]) && 
+            isOccupying((*grid)[x][y + 1])); 
+}
+
+
+int isOccupying(char c) {
+    return isalpha(c) || c == ANY_CHAR;
+}
+
+void getAcrossPattern(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], 
+                      int x,
+                      int y,
+                      char *pattern) {
+    int i = 0;
+    while (x < MAX_WORD_SIZE && isOccupying((*grid)[x][y])) 
+        pattern[i++] = (*grid)[x++][y];
+    pattern[i] = 0x00;
+}
+
+void getDownPattern(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], 
+                    int x,
+                    int y,
+                    char *pattern) {
+    int i = 0;
+    while (y < MAX_WORD_SIZE && isOccupying((*grid)[x][y])) 
+        pattern[i++] = (*grid)[x][y++];
+    pattern[i] = 0x00;
 }
 

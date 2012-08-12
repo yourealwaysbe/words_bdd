@@ -84,12 +84,10 @@ void getDownPattern(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE],
                     int x,
                     int y,
                     char *pattern);
-
-
+char *strlwr(char *s);
 
 int totalChars = 0;
 int totalWords = 0;
-
 
 char *bddInFile = 0x00;
 char *bddOutFile = 0x00;
@@ -170,6 +168,7 @@ void processCommandLine(int argc, char **argv) {
             i += 2;
         } else if (strcmp(argv[i], "-p") == 0) {
             pattern = argv[i+1];
+            strlwr(pattern);
             i += 2;
         } else if (strcmp(argv[i], "-rcw") == 0) {
             crossword = argv[i+1];
@@ -330,7 +329,7 @@ DdNode *loadWords(DdManager *manager, char *wordsFile) {
     char word[MAX_WORD_SIZE];
 
     while (fscanf(f, "%s", word) != EOF) {
-
+        strlwr(word);
         totalChars += strlen(word);
         totalWords++;
 
@@ -498,7 +497,7 @@ Crossword readCrosswordRaw(char *crosswordFile) {
     // count lines
     cw.size = 0;
     char c;
-    while ((c = getc(f)) != EOF) 
+    while ((c = tolower(getc(f))) != EOF) 
         if (c == '\n') cw.size++;
 
     cw.clues = (Clue*)malloc(cw.size * sizeof(Clue));
@@ -542,7 +541,7 @@ Crossword readCrosswordDiagram(char *crosswordFile) {
     char c;
     int x = 0;
     int y = 0;
-    while ((c = getc(f)) != EOF) {
+    while ((c = tolower(getc(f))) != EOF) {
         printf("%c", c);
         if (x >= MAX_WORD_SIZE || y >= MAX_WORD_SIZE) {
             printf("Crossword in %s too big (must be within %dx%d).\n",
@@ -863,5 +862,15 @@ void getDownPattern(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE],
     while (y < MAX_WORD_SIZE && isOccupying((*grid)[x][y])) 
         pattern[i++] = (*grid)[x][y++];
     pattern[i] = 0x00;
+}
+
+
+char *strlwr(char *s) {
+    int i = 0;
+    while (s[i]) {
+        s[i] = tolower(s[i]);
+        i++;
+    }
+    return s;
 }
 

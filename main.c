@@ -817,7 +817,7 @@ int acrossStart(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], int x, int y) {
             x < MAX_WORD_SIZE && 
             y >= 0 &&
             y < MAX_WORD_SIZE &&
-            (*grid)[x - 1][y] == ' ' &&
+            !isOccupying((*grid)[x - 1][y]) &&
             isOccupying((*grid)[x][y]) && 
             isOccupying((*grid)[x + 1][y])); 
 }
@@ -833,7 +833,7 @@ int downStart(char (*grid)[MAX_WORD_SIZE][MAX_WORD_SIZE], int x, int y) {
             y < MAX_WORD_SIZE && 
             x >= 0 &&
             x < MAX_WORD_SIZE &&
-            (*grid)[x][y - 1] == ' ' &&
+            !isOccupying((*grid)[x][y - 1]) &&
             isOccupying((*grid)[x][y]) && 
             isOccupying((*grid)[x][y + 1])); 
 }

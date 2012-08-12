@@ -8,6 +8,7 @@
 #include "dddmp.h"
 
 #define MAX_WORD_SIZE 25
+#define RAW_FORMAT "%c %d %d %25s\n"
 #define DIR_ACROSS 'A'
 #define DIR_DOWN 'D'
 #define ANY_CHAR '*'
@@ -184,7 +185,6 @@ void processCommandLine(int argc, char **argv) {
     }
 
     if (error || help || (bddInFile == 0x00 && wordFile == 0x00)) {
-        printf("%d, %d, %d\n", error, help, (bddInFile == 0x00 && wordFile == 0x00));
         printf("Usage: ./words_bdd [options]\n");
         printf("\n");
         printf("Must specify -ib or -w.\n");
@@ -495,21 +495,20 @@ Crossword readCrosswordRaw(char *crosswordFile) {
     }
 
     // count lines
+    char dir;
+    int x;
+    int y;
+    char pat[MAX_WORD_SIZE];
     cw.size = 0;
-    char c;
-    while ((c = tolower(getc(f))) != EOF) 
-        if (c == '\n') cw.size++;
+    while (fscanf(f, RAW_FORMAT, &dir, &x, &y, pat) == 4) 
+        cw.size++;
 
     cw.clues = (Clue*)malloc(cw.size * sizeof(Clue));
 
     // read crossword
     rewind(f);
-    char dir;
-    int x;
-    int y;
-    char pat[MAX_WORD_SIZE];
     int i = 0;
-    while (fscanf(f, "%c %d %d %s\n", &dir, &x, &y, pat) != EOF) {
+    while (fscanf(f, RAW_FORMAT, &dir, &x, &y, pat) == 4) {
         cw.clues[i].across = (dir == DIR_ACROSS);
         cw.clues[i].x = x;
         cw.clues[i].y = y;
